@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BRICK BREAKER — Progressive Green Bonus</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/2.3.3/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; background: #090D1A; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    canvas { display: block; max-width: 100vw; max-height: 100vh; width: auto; height: auto; }
+  </style>
+</head>
+<body>
+<script>
+/*
+  BRICK BREAKER — ORIGINAL EDITION + GREEN & BLUE BONUS
+  p5.js 2.3.3
+*/
+
+// ================= 사용자 설정 =================
+
+// 캔버스 설정
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 600;
+const BACKGROUND_COLOR = "#090D1A";
+
+// 패들 설정
+const PADDLE_WIDTH = 110;
+const PADDLE_HEIGHT = 12;
+const PADDLE_SPEED = 9;
+const MOUSE_PADDLE_SMOOTHING = 1.0;
+
+// 공 설정
+const BALL_RADIUS = 8;
+const BALL_MIN_RADIUS = 2;
+const BALL_GAMEOVER_RADIUS = 2;
+const BALL_MAX_RADIUS = 23;
+const BALL_SPEED = 10;
+const BALL_GROWTH = 0.8;
+const BALL_SHRINK = 4;
+const GROW_EFFECT_DURATION = 22;
+const SHRINK_EFFECT_DURATION = 20;
+
+// 벽돌 설정
+const BRICK_ROWS = 5;
+const BRICK_COLS = 10;
+const BRICK_WIDTH = 65;
+const BRICK_HEIGHT = 22;
+const BRICK_GAP = 7;
+
+// 게임 설정
+const START_LIVES = 1;
+
+// 배경 입자 설정
+const PARTICLE_COUNT = 300; // 화면에 유지할 일반 입자의 최대 개수
+const PARTICLE_MIN_SIZE = 5; // 일반 입자 최소 크기
+const PARTICLE_MAX_SIZE = 10; // 일반 입자 최대 크기
+const PARTICLE_SPEED = 0.2; // 일반 입자 이동 속도
+
+// ★ 일반 입자 재생성 속도 설정 ★
+// 숫자를 작게 설정하면 일반 입자가 더 빠르게 재생성됨
+// 숫자를 크게 설정하면 일반 입자가 더 느리게 재생성됨
+// 60FPS 기준: 1 = 약 0.017초, 6 = 약 0.1초, 30 = 약 0.5초, 60 = 약 1초
+const PARTICLE_RESPAWN_INTERVAL = 60;
+
+// 충돌 파티클 설정
+const BURST_COUNT = 18;
+const BURST_SIZE = 3.5;
+const BURST_SPEED = 2.8;
+const BURST_LIFETIME = 24;
+const BURST_SHRINK = 0.94;
+
+// 입자 흡수 설정
+const ATTRACTION_RADIUS = 70;
+const ATTRACTION_STRENGTH = 0.5;
+const ATTRACTION_MAX_SPEED = 2;
+const ATTRACTION_VISUAL_STRENGTH = 0.22;
+
+// 화면 왜곡 설정
+const DISTORTION_DURATION = 18;
+const DISTORTION_MAX_RADIUS = 52;
+const DISTORTION_STRENGTH = 1;
+const DISTORTION_MAX_EVENTS = 6;
+
+// 초록색 보너스 설정
+const BONUS_MIN_INTERVAL = 7 * 60;       // 초반 최소 등장 간격 약 7초
+const BONUS_MAX_INTERVAL = 15 * 60;      // 초반 최대 등장 간격 약 15초
+const BONUS_PARTICLE_SIZE = 13;          // 초록색 입자 크기
+const BONUS_PARTICLE_SPEED = 1.3;        // 초록색 입자 속도
+const BONUS_GLOW_SIZE = 30;              // 초록색 발광 크기
+const BONUS_GLOW_OPACITY = 35;           // 초록색 발광 투명도
+const BONUS_COLOR = "#52FF78";           // 초록색
+const BONUS_MAX_PARTICLES = 8;           // 동시에 존재 가능한 초록색 보너스 최대 개수
+const BONUS_MIN_INTERVAL_LATE = 45;      // 클리어 직전 최소 등장 간격(프레임)
+const BONUS_MAX_INTERVAL_LATE = 90;      // 클리어 직전 최대 등장 간격(프레임)
+const BONUS_INTERVAL_ACCELERATION = 0.85;// 진행도에 따른 등장 간격 변화 강도
+
+// 파란색 보너스 설정
+const BLUE_BONUS_MIN_INTERVAL = 8 * 60;   // 최소 등장 간격 약 8초
+const BLUE_BONUS_MAX_INTERVAL = 18 * 60;  // 최대 등장 간격 약 18초
+const BLUE_BONUS_SIZE = 20;               // 파란색 입자 크기
+const BLUE_BONUS_SPEED = 1.1;             // 파란색 입자 이동 속도
+const BLUE_BONUS_GLOW_SIZE = 46;          // 파란색 발광 범위
+const BLUE_BONUS_GLOW_OPACITY = 45;       // 파란색 발광 투명도
+const BLUE_BONUS_COLOR = "#35A7FF";        // 파란색
+const BLUE_BONUS_MULTIPLIER = 2;          // 획득 시 공 크기 배율
+
+// ================= 게임 데이터 =================
+
+let paddle;
+let ball;
+let bricks = [];
+let backgroundParticles = [];
+let burstParticles = [];
+let distortions = [];
+
+let lives = START_LIVES;
+let score = 0;
+let gameState = "ready";
+
+// 초록색 보너스 상태: 여러 개 동시 등장 지원
+let bonusParticles = [];
+let nextBonusFrame = 0;
+
+// 파란색 보너스 상태
+let blueBonusParticle = null;
+let nextBlueBonusFrame = 0;
+
+// 전체 프레임 카운터
+let frameCounter = 0;
+
+// =====================================================
+// 초기화
+// =====================================================
+
+function setup() {
+  createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  paddle = {
+    x: width / 2,
+    y: height - 42,
+    w: PADDLE_WIDTH,
+    h: PADDLE_HEIGHT
+  };
+
+  restartGame();
+}
+
+// =====================================================
+// 메인 루프
+// =====================================================
+
+function draw() {
+  frameCounter++;
+
+  background(BACKGROUND_COLOR);
+
+  updateBackgroundParticles();
+  drawBackgroundParticles();
+
+  updateBurstParticles();
+  drawBurstParticles();
+
+  updateDistortions();
+  drawDistortions();
+
+  // 초록색 보너스
+  updateBonusParticle();
+  drawBonusParticle();
+
+  // 파란색 보너스
+  updateBlueBonusParticle();
+  drawBlueBonusParticle();
+
+  drawBricks();
+
+  updatePaddle();
+  drawPaddle();
+
+  if (gameState === "playing") {
+    updateBall();
+  }
+
+  drawBall();
+  drawInterface();
+
+  if (gameState === "ready") {
+    drawMessage("CLICK TO START");
+  } else if (gameState === "gameover") {
+    drawMessage("GAME OVER — CLICK TO RESTART");
+  } else if (gameState === "win") {
+    drawMessage("YOU WIN — CLICK TO RESTART");
+  }
+}
+
+// =====================================================
+// 배경 입자 생성
+// =====================================================
+
+function createBackgroundParticles() {
+  backgroundParticles = [];
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    backgroundParticles.push({
+      x: random(width),
+      y: random(height),
+      size: random(PARTICLE_MIN_SIZE, PARTICLE_MAX_SIZE),
+      vx: random(-PARTICLE_SPEED, PARTICLE_SPEED),
+      vy: random(-PARTICLE_SPEED, PARTICLE_SPEED),
+      phase: random(TWO_PI),
+      colorShift: random(160, 230)
+    });
+  }
+}
+
+// =====================================================
+// 배경 입자 업데이트
+// =====================================================
+
+function updateBackgroundParticles() {
+  for (let i = backgroundParticles.length - 1; i >= 0; i--) {
+    const p = backgroundParticles[i];
+
+    p.x += p.vx;
+    p.y += p.vy;
+    p.phase += 0.015;
+
+    if (p.x < 0) p.x = width;
+    if (p.x > width) p.x = 0;
+    if (p.y < 0) p.y = height;
+    if (p.y > height) p.y = 0;
+
+    const dx = ball.x - p.x;
+    const dy = ball.y - p.y;
+    const d = sqrt(dx * dx + dy * dy);
+
+    // 공 주변의 입자를 끌어당김
+    if (
+      gameState === "playing" &&
+      d < ATTRACTION_RADIUS &&
+      d > 0.001
+    ) {
+      const influence = 1 - d / ATTRACTION_RADIUS;
+      const pullSpeed = ATTRACTION_STRENGTH * influence;
+
+      p.x += (dx / d) * pullSpeed;
+      p.y += (dy / d) * pullSpeed;
+
+      const curve = ATTRACTION_VISUAL_STRENGTH * influence;
+
+      p.x += (-dy / d) * curve;
+      p.y += (dx / d) * curve;
+    }
+
+    // 공이 일반 입자를 흡수
+    if (
+      gameState === "playing" &&
+      d < ball.r + p.size * 0.5
+    ) {
+      backgroundParticles.splice(i, 1);
+
+      ball.r = min(BALL_MAX_RADIUS, ball.r + BALL_GROWTH);
+      ball.growTimer = GROW_EFFECT_DURATION;
+
+      createBurst(p.x, p.y, color(70, 180, 255), 8);
+
+      score += 5;
+    }
+  }
+
+  // 흡수되어 줄어든 일반 입자를 설정한 간격마다 1개씩 재생성
+  // PARTICLE_RESPAWN_INTERVAL 값을 줄이면 더 빠르게, 늘리면 더 느리게 재생성됨
+  if (
+    backgroundParticles.length < PARTICLE_COUNT &&
+    frameCounter % PARTICLE_RESPAWN_INTERVAL === 0
+  ) {
+    backgroundParticles.push({
+      x: random(width),
+      y: random(height),
+      size: random(PARTICLE_MIN_SIZE, PARTICLE_MAX_SIZE),
+      vx: random(-PARTICLE_SPEED, PARTICLE_SPEED),
+      vy: random(-PARTICLE_SPEED, PARTICLE_SPEED),
+      phase: random(TWO_PI),
+      colorShift: random(160, 230)
+    });
+  }
+}
+
+// =====================================================
+// 배경 입자 그리기
+// =====================================================
+
+function drawBackgroundParticles() {
+  colorMode(RGB, 255);
+  noStroke();
+
+  for (const p of backgroundParticles) {
+    const pulse = 0.75 + sin(p.phase) * 0.25;
+    const alphaValue = 100 + pulse * 100;
+
+    fill(
+      p.colorShift - 20,
+      p.colorShift + 10,
+      255,
+      alphaValue
+    );
+
+    circle(p.x, p.y, p.size * pulse);
+  }
+}
+
+// =====================================================
+// 벽돌 생성
+// =====================================================
+
+function createBricks() {
+  bricks = [];
+
+  const totalWidth =
+    BRICK_COLS * BRICK_WIDTH +
+    (BRICK_COLS - 1) * BRICK_GAP;
+
+  const startX = (width - totalWidth) / 2;
+  const startY = 65;
+
+  for (let row = 0; row < BRICK_ROWS; row++) {
+    for (let col = 0; col < BRICK_COLS; col++) {
+      bricks.push({
+        x: startX + col * (BRICK_WIDTH + BRICK_GAP),
+        y: startY + row * (BRICK_HEIGHT + BRICK_GAP),
+        w: BRICK_WIDTH,
+        h: BRICK_HEIGHT,
+        hue: map(row, 0, BRICK_ROWS - 1, 185, 315),
+        alive: true
+      });
+    }
+  }
+}
+
+// =====================================================
+// 일반 벽돌 그리기 — 기존 디자인 유지
+// =====================================================
+
+function drawBricks() {
+  colorMode(HSB, 360, 100, 100, 255);
+
+  rectMode(CORNER);
+  noStroke();
+
+  for (const b of bricks) {
+    if (!b.alive) continue;
+
+    fill(b.hue, 65, 95, 255);
+
+    rect(
+      b.x,
+      b.y,
+      b.w,
+      b.h,
+      3
+    );
+
+    // 상단 하이라이트
+    fill(b.hue, 35, 100, 255);
+
+    rect(
+      b.x + 2,
+      b.y + 2,
+      b.w - 4,
+      3,
+      2
+    );
+
+    // 하단 음영
+    fill(b.hue, 75, 65, 255);
+
+    rect(
+      b.x + 2,
+      b.y + b.h - 4,
+      b.w - 4,
+      2,
+      1
+    );
+  }
+
+  colorMode(RGB, 255);
+}
+
+// =====================================================
+// 패들 업데이트
+// =====================================================
+
+function updatePaddle() {
+  if (keyIsDown(LEFT_ARROW) || keyIsDown(65)) {
+    paddle.x -= PADDLE_SPEED;
+  }
+
+  if (keyIsDown(RIGHT_ARROW) || keyIsDown(68)) {
+    paddle.x += PADDLE_SPEED;
+  }
+
+  if (
+    mouseX >= 0 && mouseX <= width &&
+    mouseY >= 0 && mouseY <= height
+  ) {
+    paddle.x = lerp(
+      paddle.x,
+      mouseX,
+      MOUSE_PADDLE_SMOOTHING
+    );
+  }
+
+  paddle.x = constrain(
+    paddle.x,
+    paddle.w / 2,
+    width - paddle.w / 2
+  );
+}
+
+// =====================================================
+// 패들 그리기 — 기존 디자인 유지
+// =====================================================
+
+function drawPaddle() {
+  rectMode(CORNER);
+  noStroke();
+
+  const px = paddle.x - paddle.w / 2;
+  const py = paddle.y;
+
+  fill(0, 0, 0, 70);
+
+  rect(
+    px,
+    py + 3,
+    paddle.w,
+    paddle.h,
+    4
+  );
+
+  fill(95, 165, 255);
+
+  rect(
+    px,
+    py,
+    paddle.w,
+    paddle.h,
+    4
+  );
+
+  fill(190, 225, 255);
+
+  rect(
+    px + 4,
+    py + 2,
+    paddle.w - 8,
+    2,
+    2
+  );
+}
+
+// =====================================================
+// 공 초기화
+// =====================================================
+
+function resetBall() {
+  ball = {
+    x: width / 2,
+    y: height - 75,
+    vx: random([-1, 1]) * BALL_SPEED * 0.65,
+    vy: -BALL_SPEED * 0.76,
+    r: BALL_RADIUS,
+    growTimer: 0,
+    shrinkTimer: 0
+  };
+
+  normalizeBallVelocity();
+}
+
+// =====================================================
+// 공 속도 정규화
+// =====================================================
+
+function normalizeBallVelocity() {
+  const speed = sqrt(
+    ball.vx * ball.vx +
+    ball.vy * ball.vy
+  );
+
+  if (speed > 0) {
+    ball.vx = (ball.vx / speed) * BALL_SPEED;
+    ball.vy = (ball.vy / speed) * BALL_SPEED;
+  }
+}
+
+// =====================================================
+// 공 업데이트
+// =====================================================
+
+function updateBall() {
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  if (ball.growTimer > 0) ball.growTimer--;
+  if (ball.shrinkTimer > 0) ball.shrinkTimer--;
+
+  // 좌측 벽 충돌
+  if (ball.x - ball.r < 0) {
+    ball.x = ball.r;
+    ball.vx = abs(ball.vx);
+
+    createBurst(
+      ball.x,
+      ball.y,
+      color(100, 200, 255)
+    );
+  }
+
+  // 우측 벽 충돌
+  if (ball.x + ball.r > width) {
+    ball.x = width - ball.r;
+    ball.vx = -abs(ball.vx);
+
+    createBurst(
+      ball.x,
+      ball.y,
+      color(100, 200, 255)
+    );
+  }
+
+  // 상단 벽 충돌
+  if (ball.y - ball.r < 0) {
+    ball.y = ball.r;
+    ball.vy = abs(ball.vy);
+
+    createBurst(
+      ball.x,
+      ball.y,
+      color(100, 200, 255)
+    );
+  }
+
+  // 패들 충돌
+  if (
+    ball.vy > 0 &&
+    ball.y + ball.r >= paddle.y &&
+    ball.y - ball.r <= paddle.y + paddle.h &&
+    ball.x >= paddle.x - paddle.w / 2 &&
+    ball.x <= paddle.x + paddle.w / 2
+  ) {
+    ball.y = paddle.y - ball.r;
+
+    const hitPosition =
+      (ball.x - paddle.x) / (paddle.w / 2);
+
+    const angle = hitPosition * radians(58);
+
+    ball.vx = BALL_SPEED * sin(angle);
+    ball.vy = -abs(BALL_SPEED * cos(angle));
+
+    normalizeBallVelocity();
+
+    createBurst(
+      ball.x,
+      ball.y,
+      color(100, 200, 255),
+      10
+    );
+  }
+
+  // 바닥으로 떨어지면 게임 오버
+  if (ball.y - ball.r > height) {
+    lives--;
+
+    if (lives <= 0) {
+      gameState = "gameover";
+    } else {
+      resetBall();
+      gameState = "ready";
+    }
+
+    return;
+  }
+
+  checkBrickCollisions();
+
+  // 공이 너무 작아지면 게임 오버
+  if (ball.r <= BALL_GAMEOVER_RADIUS) {
+    gameState = "gameover";
+    return;
+  }
+
+  // 모든 벽돌을 제거하면 승리
+  if (bricks.every(b => !b.alive)) {
+    gameState = "win";
+  }
+}
+
+// =====================================================
+// 벽돌 충돌
+// =====================================================
+
+function checkBrickCollisions() {
+  for (const b of bricks) {
+    if (!b.alive) continue;
+
+    const closestX = constrain(
+      ball.x,
+      b.x,
+      b.x + b.w
+    );
+
+    const closestY = constrain(
+      ball.y,
+      b.y,
+      b.y + b.h
+    );
+
+    const dx = ball.x - closestX;
+    const dy = ball.y - closestY;
+
+    if (dx * dx + dy * dy <= ball.r * ball.r) {
+      b.alive = false;
+      score += 10;
+
+      if (abs(dx) > abs(dy)) {
+        ball.vx *= -1;
+      } else {
+        ball.vy *= -1;
+      }
+
+      ball.r = max(
+        BALL_MIN_RADIUS,
+        ball.r - BALL_SHRINK
+      );
+
+      ball.shrinkTimer = SHRINK_EFFECT_DURATION;
+
+      createBurst(
+        closestX,
+        closestY,
+        color(255, 80, 100),
+        BURST_COUNT
+      );
+
+      createDistortion(ball.x, ball.y);
+
+      break;
+    }
+  }
+}
+
+// =====================================================
+// 공 그리기 — 기존 디자인 유지
+// =====================================================
+
+function drawBall() {
+  noStroke();
+
+  if (ball.shrinkTimer > 0) {
+    fill(255, 65, 85);
+  } else if (ball.growTimer > 0) {
+    fill(65, 175, 255);
+  } else {
+    fill(235, 245, 255);
+  }
+
+  circle(
+    ball.x,
+    ball.y,
+    ball.r * 2
+  );
+}
+
+// =====================================================
+// 충돌 파티클 생성
+// =====================================================
+
+function createBurst(
+  x,
+  y,
+  particleColor,
+  amount = BURST_COUNT
+) {
+  for (let i = 0; i < amount; i++) {
+    const angle = random(TWO_PI);
+
+    const speed = random(
+      BURST_SPEED * 0.35,
+      BURST_SPEED
+    );
+
+    burstParticles.push({
+      x: x,
+      y: y,
+      vx: cos(angle) * speed,
+      vy: sin(angle) * speed,
+      size: random(
+        BURST_SIZE * 0.5,
+        BURST_SIZE
+      ),
+      life: BURST_LIFETIME,
+      maxLife: BURST_LIFETIME,
+      col: particleColor
+    });
+  }
+}
+
+// =====================================================
+// 충돌 파티클 업데이트
+// =====================================================
+
+function updateBurstParticles() {
+  for (let i = burstParticles.length - 1; i >= 0; i--) {
+    const p = burstParticles[i];
+
+    p.x += p.vx;
+    p.y += p.vy;
+
+    p.vx *= BURST_SHRINK;
+    p.vy *= BURST_SHRINK;
+    p.size *= BURST_SHRINK;
+
+    p.life--;
+
+    if (p.life <= 0 || p.size < 0.2) {
+      burstParticles.splice(i, 1);
+    }
+  }
+}
+
+// =====================================================
+// 충돌 파티클 그리기
+// =====================================================
+
+function drawBurstParticles() {
+  colorMode(RGB, 255);
+  noStroke();
+
+  for (const p of burstParticles) {
+    const alphaValue = map(
+      p.life,
+      0,
+      p.maxLife,
+      0,
+      255
+    );
+
+    const particleColor = color(
+      red(p.col),
+      green(p.col),
+      blue(p.col),
+      alphaValue
+    );
+
+    fill(particleColor);
+
+    circle(
+      p.x,
+      p.y,
+      p.size * 2
+    );
+  }
+}
+
+// =====================================================
+// 화면 왜곡 생성
+// =====================================================
+
+function createDistortion(x, y) {
+  distortions.push({
+    x: x,
+    y: y,
+    age: 0
+  });
+
+  while (distortions.length > DISTORTION_MAX_EVENTS) {
+    distortions.shift();
+  }
+}
+
+// =====================================================
+// 화면 왜곡 업데이트
+// =====================================================
+
+function updateDistortions() {
+  for (let i = distortions.length - 1; i >= 0; i--) {
+    distortions[i].age++;
+
+    if (distortions[i].age >= DISTORTION_DURATION) {
+      distortions.splice(i, 1);
+    }
+  }
+}
+
+// =====================================================
+// 화면 왜곡 그리기
+// =====================================================
+
+function drawDistortions() {
+  colorMode(RGB, 255);
+  noFill();
+
+  for (const effect of distortions) {
+    const progress =
+      effect.age / DISTORTION_DURATION;
+
+    const radius =
+      progress *
+      DISTORTION_MAX_RADIUS *
+      DISTORTION_STRENGTH;
+
+    const alphaValue = (1 - progress) * 180;
+
+    stroke(255, 80, 115, alphaValue);
+    strokeWeight(1.5 * (1 - progress) + 0.3);
+
+    circle(
+      effect.x,
+      effect.y,
+      radius * 2
+    );
+
+    stroke(100, 190, 255, alphaValue * 0.7);
+
+    circle(
+      effect.x,
+      effect.y,
+      radius * 1.4
+    );
+  }
+
+  noStroke();
+}
+
+// =====================================================
+// 초록색 보너스 입자
+// 효과: 파괴된 벽돌 하나 복구
+// =====================================================
+
+function getRemainingBrickRatio() {
+  const remainingBricks = bricks.filter(b => b.alive).length;
+  return bricks.length > 0 ? remainingBricks / bricks.length : 0;
+}
+
+function getBonusSpawnInterval() {
+  // 벽돌을 많이 깰수록 등장 간격을 줄임
+  const progress = 1 - getRemainingBrickRatio();
+  const easedProgress = pow(progress, BONUS_INTERVAL_ACCELERATION);
+
+  const minInterval = lerp(BONUS_MIN_INTERVAL, BONUS_MIN_INTERVAL_LATE, easedProgress);
+  const maxInterval = lerp(BONUS_MAX_INTERVAL, BONUS_MAX_INTERVAL_LATE, easedProgress);
+  return floor(random(minInterval, maxInterval + 1));
+}
+
+function scheduleNextBonus() {
+  nextBonusFrame = frameCounter + getBonusSpawnInterval();
+}
+
+function updateBonusParticle() {
+  // 화면에 있는 모든 초록색 보너스를 각각 이동 및 충돌 처리
+  for (let i = bonusParticles.length - 1; i >= 0; i--) {
+    const p = bonusParticles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+
+    if (p.x < BONUS_PARTICLE_SIZE || p.x > width - BONUS_PARTICLE_SIZE) {
+      p.vx *= -1;
+      p.x = constrain(p.x, BONUS_PARTICLE_SIZE, width - BONUS_PARTICLE_SIZE);
+    }
+    if (p.y < 0) p.y = height;
+    if (p.y > height) p.y = 0;
+
+    if (gameState === "playing" && dist(ball.x, ball.y, p.x, p.y) < ball.r + BONUS_PARTICLE_SIZE) {
+      collectBonusParticle(i);
+    }
+  }
+
+  // 등장 타이머는 획득 여부와 무관하게 계속 작동
+  if (gameState === "playing" && frameCounter >= nextBonusFrame) {
+    if (bonusParticles.length < BONUS_MAX_PARTICLES) {
+      spawnBonusParticle();
+    } else {
+      // 화면이 최대 개수로 차 있어도 타이머를 계속 갱신
+      scheduleNextBonus();
+    }
+  }
+}
+
+function spawnBonusParticle() {
+  if (bonusParticles.length >= BONUS_MAX_PARTICLES) {
+    scheduleNextBonus();
+    return;
+  }
+
+  const spawnSide = floor(random(4));
+  let spawnX;
+  let spawnY;
+
+  if (spawnSide === 0) {
+    spawnX = random(30, width - 30);
+    spawnY = 30;
+  } else if (spawnSide === 1) {
+    spawnX = random(30, width - 30);
+    spawnY = height - 30;
+  } else if (spawnSide === 2) {
+    spawnX = 30;
+    spawnY = random(30, height - 30);
+  } else {
+    spawnX = width - 30;
+    spawnY = random(30, height - 30);
+  }
+
+  const direction = random(TWO_PI);
+  bonusParticles.push({
+    x: spawnX,
+    y: spawnY,
+    vx: cos(direction) * BONUS_PARTICLE_SPEED,
+    vy: sin(direction) * BONUS_PARTICLE_SPEED,
+    phase: random(TWO_PI)
+  });
+
+  scheduleNextBonus();
+}
+
+function drawBonusParticle() {
+  noStroke();
+  for (const p of bonusParticles) {
+    p.phase += 0.08;
+    const pulseScale = 1 + sin(p.phase) * 0.15;
+    const particleSize = BONUS_PARTICLE_SIZE * pulseScale;
+
+    fill(82, 255, 120, BONUS_GLOW_OPACITY);
+    circle(p.x, p.y, BONUS_GLOW_SIZE * pulseScale);
+    fill(82, 255, 120, 85);
+    circle(p.x, p.y, particleSize * 2);
+    fill(BONUS_COLOR);
+    circle(p.x, p.y, particleSize);
+    fill(230, 255, 235, 220);
+    circle(p.x - particleSize * 0.18, p.y - particleSize * 0.18, particleSize * 0.35);
+  }
+}
+
+function collectBonusParticle(index) {
+  if (index < 0 || index >= bonusParticles.length) return;
+  const collected = bonusParticles.splice(index, 1)[0];
+  const destroyedBricks = bricks.filter(b => !b.alive);
+
+  if (destroyedBricks.length > 0) {
+    const restoredBrick = random(destroyedBricks);
+    restoredBrick.alive = true;
+    createBurst(restoredBrick.x + restoredBrick.w / 2, restoredBrick.y + restoredBrick.h / 2, color(82, 255, 120), BURST_COUNT);
+    createDistortion(restoredBrick.x + restoredBrick.w / 2, restoredBrick.y + restoredBrick.h / 2);
+  }
+
+  createBurst(collected.x, collected.y, color(82, 255, 120), BURST_COUNT);
+}
+
+// =====================================================
+// 파란색 보너스 입자
+// 효과: 공 크기 2배
+// =====================================================
+
+function scheduleNextBlueBonus() {
+  const randomInterval = floor(
+    random(
+      BLUE_BONUS_MIN_INTERVAL,
+      BLUE_BONUS_MAX_INTERVAL + 1
+    )
+  );
+
+  nextBlueBonusFrame = frameCounter + randomInterval;
+}
+
+function updateBlueBonusParticle() {
+  // 이미 파란색 입자가 등장했다면 이동 및 충돌 처리
+  if (blueBonusParticle !== null) {
+    blueBonusParticle.x += blueBonusParticle.vx;
+    blueBonusParticle.y += blueBonusParticle.vy;
+
+    // 좌우 벽에서 반사
+    if (
+      blueBonusParticle.x < BLUE_BONUS_SIZE ||
+      blueBonusParticle.x > width - BLUE_BONUS_SIZE
+    ) {
+      blueBonusParticle.vx *= -1;
+
+      blueBonusParticle.x = constrain(
+        blueBonusParticle.x,
+        BLUE_BONUS_SIZE,
+        width - BLUE_BONUS_SIZE
+      );
+    }
+
+    // 위아래 화면 경계 통과 시 반대편에서 등장
+    if (blueBonusParticle.y < 0) {
+      blueBonusParticle.y = height;
+    }
+
+    if (blueBonusParticle.y > height) {
+      blueBonusParticle.y = 0;
+    }
+
+    // 공이 파란색 입자를 먹으면 공 크기 2배
+    if (
+      gameState === "playing" &&
+      dist(
+        ball.x,
+        ball.y,
+        blueBonusParticle.x,
+        blueBonusParticle.y
+      ) < ball.r + BLUE_BONUS_SIZE
+    ) {
+      collectBlueBonusParticle();
+    }
+
+    return;
+  }
+
+  // 게임 진행 중 랜덤 시간에 등장
+  if (
+    gameState === "playing" &&
+    frameCounter >= nextBlueBonusFrame
+  ) {
+    spawnBlueBonusParticle();
+  }
+}
+
+function spawnBlueBonusParticle() {
+  const spawnSide = floor(random(4));
+
+  let spawnX;
+  let spawnY;
+
+  if (spawnSide === 0) {
+    spawnX = random(35, width - 35);
+    spawnY = 35;
+  } else if (spawnSide === 1) {
+    spawnX = random(35, width - 35);
+    spawnY = height - 35;
+  } else if (spawnSide === 2) {
+    spawnX = 35;
+    spawnY = random(35, height - 35);
+  } else {
+    spawnX = width - 35;
+    spawnY = random(35, height - 35);
+  }
+
+  const direction = random(TWO_PI);
+
+  blueBonusParticle = {
+    x: spawnX,
+    y: spawnY,
+    vx: cos(direction) * BLUE_BONUS_SPEED,
+    vy: sin(direction) * BLUE_BONUS_SPEED,
+    phase: random(TWO_PI)
+  };
+
+  scheduleNextBlueBonus();
+}
+
+function drawBlueBonusParticle() {
+  if (blueBonusParticle === null) return;
+
+  blueBonusParticle.phase += 0.065;
+
+  const pulseScale =
+    1 + sin(blueBonusParticle.phase) * 0.12;
+
+  const particleSize = BLUE_BONUS_SIZE * pulseScale;
+
+  noStroke();
+
+  // 넓은 푸른색 발광
+  fill(45, 150, 255, BLUE_BONUS_GLOW_OPACITY);
+
+  circle(
+    blueBonusParticle.x,
+    blueBonusParticle.y,
+    BLUE_BONUS_GLOW_SIZE * pulseScale
+  );
+
+  // 중간 발광
+  fill(45, 150, 255, 90);
+
+  circle(
+    blueBonusParticle.x,
+    blueBonusParticle.y,
+    particleSize * 1.8
+  );
+
+  // 파란색 입자 본체
+  fill(BLUE_BONUS_COLOR);
+
+  circle(
+    blueBonusParticle.x,
+    blueBonusParticle.y,
+    particleSize
+  );
+
+  // 밝은 중심 하이라이트
+  fill(220, 245, 255, 235);
+
+  circle(
+    blueBonusParticle.x - particleSize * 0.2,
+    blueBonusParticle.y - particleSize * 0.2,
+    particleSize * 0.32
+  );
+}
+
+function collectBlueBonusParticle() {
+  if (blueBonusParticle === null) return;
+
+  const collectedX = blueBonusParticle.x;
+  const collectedY = blueBonusParticle.y;
+
+  blueBonusParticle = null;
+
+  // 현재 공의 크기를 2배로 키우되 기존 최대 크기를 유지
+  ball.r = min(
+    BALL_MAX_RADIUS,
+    ball.r * BLUE_BONUS_MULTIPLIER
+  );
+
+  ball.growTimer = GROW_EFFECT_DURATION;
+
+  // 획득 위치에 파란색 폭발 효과
+  createBurst(
+    collectedX,
+    collectedY,
+    color(45, 150, 255),
+    BURST_COUNT * 2
+  );
+
+  // 파란색 충격파 효과
+  createDistortion(collectedX, collectedY);
+
+  // 다음 파란색 입자는 새로운 랜덤 시간에 등장
+  scheduleNextBlueBonus();
+}
+
+// =====================================================
+// 인터페이스 — 기존 UI 유지
+// =====================================================
+
+function drawInterface() {
+  colorMode(RGB, 255);
+
+  fill(220, 230, 255);
+  noStroke();
+
+  textAlign(LEFT, TOP);
+  textSize(14);
+
+  text("SCORE  " + score, 20, 18);
+  text("LIVES  " + lives, 20, 40);
+
+  textAlign(RIGHT, TOP);
+  textSize(11);
+
+  fill(130, 150, 190);
+
+  text(
+    "MOVE: A / D OR ARROW KEYS",
+    width - 20,
+    18
+  );
+
+  text(
+    "MOUSE: MOVE PADDLE",
+    width - 20,
+    35
+  );
+
+  text(
+    "CLICK: RESTART AFTER GAME",
+    width - 20,
+    52
+  );
+
+  // 초록색 보너스가 화면에 있을 때 안내 표시
+  if (bonusParticles.length > 0) {
+    textAlign(CENTER, TOP);
+    textSize(11);
+    fill(82, 255, 120);
+    text("GREEN BONUS: RESTORE 1 BRICK  x" + bonusParticles.length, width / 2, 18);
+  }
+
+  // 파란색 보너스가 등장한 경우에만 안내 표시
+  if (blueBonusParticle !== null) {
+    textAlign(CENTER, TOP);
+    textSize(11);
+    fill(75, 175, 255);
+
+    text(
+      "BLUE BONUS: DOUBLE BALL SIZE",
+      width / 2,
+      34
+    );
+  }
+}
+
+// =====================================================
+// 중앙 메시지
+// =====================================================
+
+function drawMessage(message) {
+  colorMode(RGB, 255);
+
+  noStroke();
+
+  fill(5, 8, 20, 190);
+
+  rectMode(CORNER);
+
+  rect(
+    0,
+    height / 2 - 40,
+    width,
+    80
+  );
+
+  fill(235, 245, 255);
+
+  textAlign(CENTER, CENTER);
+  textSize(18);
+
+  text(
+    message,
+    width / 2,
+    height / 2
+  );
+
+  textAlign(LEFT, TOP);
+}
+
+// =====================================================
+// 키보드 입력
+// =====================================================
+
+function keyPressed() {
+  if (
+    (key === " " || keyCode === ENTER) &&
+    gameState === "ready"
+  ) {
+    gameState = "playing";
+  }
+
+  return false;
+}
+
+// =====================================================
+// 마우스 입력
+// =====================================================
+
+function mousePressed() {
+  if (
+    gameState === "gameover" ||
+    gameState === "win"
+  ) {
+    restartGame();
+    return false;
+  }
+
+  if (gameState === "ready") {
+    gameState = "playing";
+  }
+
+  return false;
+}
+
+// =====================================================
+// 게임 재시작
+// =====================================================
+
+function restartGame() {
+  lives = START_LIVES;
+  score = 0;
+  gameState = "ready";
+
+  burstParticles = [];
+  distortions = [];
+
+  // 초록색 보너스 초기화
+  bonusParticles = [];
+
+  // 파란색 보너스 초기화
+  blueBonusParticle = null;
+
+  frameCounter = 0;
+
+  createBackgroundParticles();
+  createBricks();
+  resetBall();
+
+  // 두 보너스의 등장 시간을 각각 무작위로 설정
+  scheduleNextBonus();
+  scheduleNextBlueBonus();
+
+  if (paddle) {
+    paddle.x = width / 2;
+  }
+}
+</script>
+</body>
+</html>
